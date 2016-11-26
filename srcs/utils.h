@@ -1,6 +1,10 @@
 #pragma once
 #ifdef _WIN32
 	#include <Windows.h>
+#elif __APPLE__
+	#include <stdlib.h>
+	#include <libproc.h>
+	#include <unistd.h>
 #endif
 
 #include <string>

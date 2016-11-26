@@ -1,7 +1,6 @@
 #include "Application.h"
 
-#define PARTICLE_COUNT 20000000
-#define LOCAL_WORK_ITEM 256
+#define PARTICLE_COUNT 1000000
 
 Application::~Application() {
 }
@@ -21,43 +20,35 @@ void CL_CALLBACK Application::clErrorCallback(const char *errinfo, const void *p
 	std::cerr << "clErrorCallback: " << errinfo << std::endl;
 }
 
-cl_int Application::clGetGLContextInfoKHRCallback(const cl_platform_id platform, const cl_context_properties *properties, cl_gl_context_info param_name, size_t param_value_size, void *param_value, size_t *param_value_size_ret) {
-	auto func = (clGetGLContextInfoKHR_fn)clGetExtensionFunctionAddressForPlatform(platform, "clGetGLContextInfoKHR");
-	if (func) {
-		return func(properties, param_name, param_value_size, param_value, param_value_size_ret);
-	}
-	else {
-		throw std::runtime_error("call to clGetGLContextInfoKHR failed");
-	}
-}
-
 void Application::initOpenGL() {
 	if (!glfwInit()) {
 		throw std::runtime_error("failed to initialize glfw");
 	}
-	
 
 	glfwSetErrorCallback(glfwErrorCallback);
 
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
+	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
 	window = glfwCreateWindow(1024, 768, "Particle System", nullptr, nullptr);
 	if (!window.data()) {
 		throw std::runtime_error("failed to initialize glfw window.");
 	}
-	
+
 	glfwMakeContextCurrent(window.data());
 	glfwSwapInterval(0);
 
 	glfwSetWindowUserPointer(this->window.data(), this);
 	glfwSetKeyCallback(this->window.data(), glfwKeyboardCallback);
-	
+#ifndef __APPLE__
 	glewExperimental = GL_TRUE;
 	glewInit();
+#endif
+	GLuint pVertShader = GlUtils::loadShader(Utils::getExecDir() + "/shader.vert", GL_VERTEX_SHADER);
+	GLuint pFragShader = GlUtils::loadShader(Utils::getExecDir() + "/shader.frag", GL_FRAGMENT_SHADER);
 
-	GLuint pVertShader = GlUtils::loadShader(Utils::getExecDir() + "\\shader.vert", GL_VERTEX_SHADER);
-	GLuint pFragShader = GlUtils::loadShader(Utils::getExecDir() + "\\shader.frag", GL_FRAGMENT_SHADER);
-	
 	this->glProgram = glCreateProgram();
 	glAttachShader(this->glProgram, pVertShader);
 	glAttachShader(this->glProgram, pFragShader);
@@ -91,23 +82,19 @@ void Application::createContext() {
 	clGetPlatformIDs(platformCount, platforms.data() , nullptr);
 
 	for (auto platform : platforms) {
-		size_t extensionCount;
-		clGetPlatformInfo(platform, CL_PLATFORM_EXTENSIONS, 0, nullptr, &extensionCount);
-		std::vector<char> extensions(extensionCount);
-		clGetPlatformInfo(platform, CL_PLATFORM_EXTENSIONS, extensionCount, extensions.data(), nullptr);
-		if (!strstr(extensions.data(), "cl_khr_gl_sharing")) {
-			continue;
-		}
-
-		size_t deviceCount;
+		cl_uint deviceCount;
 		clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 0, nullptr, &deviceCount);
 		std::vector<cl_device_id> devices(deviceCount);
 		clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, deviceCount, devices.data(), nullptr);
 
 		for (auto device : devices) {
-			cl_uint deviceMaxComputeUnits;
+#ifdef __APPLE__
+		CGLContextObj kCGLContext = CGLGetCurrentContext();
+		CGLShareGroupObj kCGLShareGroup = CGLGetShareGroup(kCGLContext);
+#endif
 
 			const cl_context_properties properties[]{
+#ifdef _WIN32
 				CL_CONTEXT_PLATFORM,
 				reinterpret_cast<cl_context_properties>(platform),
 				CL_GL_CONTEXT_KHR,
@@ -115,11 +102,25 @@ void Application::createContext() {
 				CL_WGL_HDC_KHR,
 				reinterpret_cast<cl_context_properties>(wglGetCurrentDC()),
 				0
+#elif defined __APPLE__
+				CL_CONTEXT_PROPERTY_USE_CGL_SHAREGROUP_APPLE,
+				reinterpret_cast<cl_context_properties>(kCGLShareGroup),
+				CL_CONTEXT_PLATFORM,
+				reinterpret_cast<cl_context_properties>(platform),
+				0
+#endif
 			};
 
 			cl_int err;
 			this->context = clCreateContext(properties, 1, &device, clErrorCallback, this, &err);
 			if (err == CL_SUCCESS) {
+				size_t paramSize;
+				clGetDeviceInfo(device, CL_DEVICE_NAME, 0, nullptr, &paramSize);
+				std::vector<char> name(paramSize);
+				clGetDeviceInfo(device, CL_DEVICE_NAME, paramSize, name.data(), nullptr);
+
+				std::cout << name.data() << std::endl;
+
 				this->platformID = platform;
 				this->deviceID = device;
 				return;
@@ -139,7 +140,7 @@ void Application::createCommandQueue() {
 }
 
 void Application::buildKernels() {
-	std::string src = Utils::readFile(Utils::getExecDir() + "\\particle.cl");
+	std::string src = Utils::readFile(Utils::getExecDir() + "/particle.cl");
 	const char *data = src.data();
 	size_t len = src.length();
 
@@ -180,38 +181,18 @@ void Application::initOpenCL() {
 }
 
 void Application::initBuffers() {
-	GLenum error = glGetError();
-	if (error != GL_NO_ERROR) {
-		std::cout << "error: " << glewGetErrorString(error) << std::endl;
-	}
-	
 	glDeleteVertexArrays(1, &this->vao);
 	glDeleteBuffers(1, &this->pVbo);
 	glDeleteBuffers(1, &this->vVbo);
 
-	error = glGetError();
-	if (error != GL_NO_ERROR) {
-		std::cout << "glDeleteBuffer error: " << glewGetErrorString(error) << std::endl;
-	}
-	
 	glGenBuffers(1, &this->vVbo);
 	glBindBuffer(GL_ARRAY_BUFFER, this->vVbo);
 	glBufferData(GL_ARRAY_BUFFER, PARTICLE_COUNT * sizeof(cl_float2), nullptr, GL_DYNAMIC_DRAW);
-
-	error = glGetError();
-	if (error != GL_NO_ERROR) {
-		std::cout << "glBufferData vVbo error: " << glewGetErrorString(error) << std::endl;
-	}
 
 	glGenBuffers(1, &this->pVbo);
 	glBindBuffer(GL_ARRAY_BUFFER, this->pVbo);
 	glBufferData(GL_ARRAY_BUFFER, PARTICLE_COUNT * sizeof(cl_float2), nullptr, GL_DYNAMIC_DRAW);
 
-	error = glGetError();
-	if (error != GL_NO_ERROR) {
-		std::cout << "glBufferData pVbo error: " << glewGetErrorString(error) << std::endl;
-	}
-	
 	glGenVertexArrays(1, &this->vao);
 	glBindVertexArray(this->vao);
 	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
@@ -247,7 +228,6 @@ void Application::initBuffers() {
 	clFinish(this->commandQueue.data());
 
 	size_t workSize = PARTICLE_COUNT;
-	size_t itemPerGroup = LOCAL_WORK_ITEM;
 	err = clEnqueueNDRangeKernel(this->commandQueue.data(), this->clInitPositions.data(), 1, nullptr, &workSize, nullptr, 0, nullptr, nullptr);
 	if (err != CL_SUCCESS) {
 		std::cerr << "clEnqueueNDRangeKernel error code " << err << std::endl;
@@ -285,22 +265,35 @@ void Application::glfwKeyboardCallback(GLFWwindow *window, int key, int scancode
 	glfwGetWindowSize(window, &winWidth, &winHeight);
 	Application *app = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
 
-	if (key == GLFW_KEY_G && action == GLFW_PRESS) {
-		double x;
-		double y;
-		glfwGetCursorPos(app->window.data(), &x, &y);
+	if (action == GLFW_PRESS) {
+		switch (key) {
+			case GLFW_KEY_G:
+				double x;
+				double y;
+				glfwGetCursorPos(app->window.data(), &x, &y);
 
-		cl_float2 attractor;
-		attractor.x = x / static_cast<float>(winWidth) * 2.f - 1.f;
-		attractor.y = -(y / static_cast<float>(winHeight) * 2.f - 1.f);
-		app->attractors.push_back(attractor);
+				cl_float2 attractor;
+				attractor.s[0] = x / static_cast<float>(winWidth) * 2.f - 1.f;
+				attractor.s[1] = -(y / static_cast<float>(winHeight) * 2.f - 1.f);
+				app->attractors.push_back(attractor);
 
-		app->clAttractors = app->pclCreateBuffer(CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, app->attractors.size() * sizeof(cl_float2), app->attractors.data());
-	}
-	else if (key == GLFW_KEY_D && action == GLFW_PRESS) {
-		if (app->attractors.size() > 0) {
-			app->attractors.erase(app->attractors.begin());
-			app->clAttractors = app->pclCreateBuffer(CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, app->attractors.size() * sizeof(cl_float2), app->attractors.data());
+				app->clAttractors = app->pclCreateBuffer(CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, app->attractors.size() * sizeof(cl_float2), app->attractors.data());
+				break;
+
+			case GLFW_KEY_D:
+				if (app->attractors.size() > 0) {
+					app->attractors.erase(app->attractors.begin());
+					app->clAttractors = app->pclCreateBuffer(CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, app->attractors.size() * sizeof(cl_float2), app->attractors.data());
+				}
+				break;
+
+			case GLFW_KEY_O:
+				glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_DST_ALPHA);
+				break;
+
+			case GLFW_KEY_P:
+				glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+				break;
 		}
 	}
 }
@@ -328,7 +321,7 @@ void Application::mainLoop() {
 		delta = currentTime - previousTime;
 		counter += delta;
 		if (counter > 1.f) {
-			std::cout << "fps: " << 1.f / delta << ", delta: " << delta << std::endl;
+			glfwSetWindowTitle(this->window.data(), (std::to_string(static_cast<int>(1.f / delta)) + " fps").c_str());
 			counter = 0.f;
 		}
 
@@ -344,8 +337,8 @@ void Application::mainLoop() {
 			glfwGetCursorPos(this->window.data(), &x, &y);
 
 			cl_float2 attractor;
-			attractor.x = x / static_cast<float>(winWidth) * 2.f - 1.f;
-			attractor.y = -(y / static_cast<float>(winHeight) * 2.f - 1.f);
+			attractor.s[0] = x / static_cast<float>(winWidth) * 2.f - 1.f;
+			attractor.s[1] = -(y / static_cast<float>(winHeight) * 2.f - 1.f);
 			this->attractors.push_back(attractor);
 
 			isCursorAttractor = true;
@@ -369,16 +362,12 @@ void Application::mainLoop() {
 			throw std::runtime_error("enqueue command failed.");
 		}
 
-		clFinish(this->commandQueue.data());
-
 		size_t workSize = PARTICLE_COUNT;
-		size_t itemPerGroup = LOCAL_WORK_ITEM;
 		err = clEnqueueNDRangeKernel(this->commandQueue.data(), this->clUpdatePositions.data(), 1, nullptr, &workSize, nullptr, 0, nullptr, nullptr);
 		if (err != CL_SUCCESS) {
 			std::cerr << "clEnqueueNDRangeKernel error code " << err << std::endl;
 			throw std::runtime_error("enqueue command failed.");
 		}
-		clFinish(this->commandQueue.data());
 
 		if (isCursorAttractor || isCursorRepulsor) {
 			this->attractors.erase(this->attractors.end() - 1);

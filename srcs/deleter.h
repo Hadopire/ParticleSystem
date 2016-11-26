@@ -1,5 +1,11 @@
 #pragma once
-#include <CL/cl.h>
+#ifdef _WIN32
+	#include <CL/cl.h>
+#elif __APPLE__
+	#include <opencl/cl.h>
+	#define _stdcall
+	#define __stdcall
+#endif
 
 #include <functional>
 #include <iostream>

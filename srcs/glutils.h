@@ -1,8 +1,14 @@
 #pragma once
-#include <GL/glew.h>
-#include <string>
+#ifdef _WIN32
+	#include <GL/glew.h>
+#elif __APPLE__
+	#include <opengl/gl3.h>
+#endif
+
 #include "utils.h"
+
 #include <vector>
+#include <string>
 #include <iostream>
 
 class GlUtils

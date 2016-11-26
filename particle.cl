@@ -1,6 +1,8 @@
 #define ACCELERATION 0.01f
 #define FRICTION (ACCELERATION * 0.0001f)
 
+float rand(uint2 *);
+
 float rand(uint2 *seed)
 {
 	seed->x = 36969 * (seed->x & 65535) + (seed->x >> 16);
@@ -22,8 +24,8 @@ __kernel void updatePositions(__global float2 *pos, __global float2 *vel, float 
 {
 	int index = get_global_id(0);
 
-	float speed = length(vel[index]);
-	for (int i = 0; i < attractorCount; i++) {
+	//float speed = length(vel[index]);
+	for (uint i = 0; i < attractorCount; i++) {
 		float2 dir = normalize(attractor[i] - pos[index]);
 		float len = length(attractor[i] - pos[index]);
 

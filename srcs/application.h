@@ -1,10 +1,23 @@
 #pragma once
 
-#include <GL/glew.h>
-#include <GLFW/glfw3.h>
-#include <CL/cl.h>
-#include <CL/cl_gl.h>
-#include <glm/vec4.hpp>
+#ifdef _WIN32
+	#include <GL/glew.h>
+	#include <CL/cl.h>
+	#include <CL/cl_gl.h>
+	#include <glm/vec4.hpp>
+	#include <GLFW/glfw3.h>
+#elif defined __APPLE__
+	#define __gl_h_
+	#define GL_DO_NOT_WARN_IF_MULTI_GL_VERSION_HEADERS_INCLUDED
+	#include <opencl/cl_gl.h>
+	#include <opencl/cl.h>
+	#include <Opencl/opencl.h>
+	#include <opencl/cl_gl_ext.h>
+	#include <opengl/gl3.h>
+	#include <Opengl/Opengl.h>
+	#include <GLFW/glfw3.h>
+#endif
+
 
 #include <stdexcept>
 #include <iostream>
@@ -35,7 +48,7 @@ private:
 	Deleter<cl_program> clProgram{ clReleaseProgram };
 	Deleter<cl_kernel> clInitPositions{ clReleaseKernel };
 	Deleter<cl_kernel> clUpdatePositions{ clReleaseKernel };
-	
+
 	GLuint pVbo;
 	GLuint vVbo;
 	GLuint vao;
@@ -47,16 +60,7 @@ private:
 	static void glfwErrorCallback(int error, const char* desc);
 	static void glfwKeyboardCallback(GLFWwindow *window, int key, int scancode, int action, int mods);
 	static void CL_CALLBACK clErrorCallback(const char *errinfo, const void *private_info, size_t cb, void *user_data);
-	static cl_int clGetGLContextInfoKHRCallback(
-		const cl_platform_id platform,
-		const cl_context_properties *properties,
-		cl_gl_context_info param_name,
-		size_t param_value_size,
-		void *param_value,
-		size_t *param_value_size_ret
-	);
 
-	
 	void initOpenGL();
 	void createContext();
 	void createCommandQueue();

@@ -1,15 +1,14 @@
 #ifdef _WIN32
 	#include <Windows.h>
+#elif defined (__APPLE__)
+	#define __gl_h_
+	#define GL_DO_NOT_WARN_IF_MULTI_GL_VERSION_HEADERS_INCLUDED
 #endif
 
 #include "application.h"
 
 #include <stdexcept>
 #include <iostream>
-
-extern "C" {
-	_declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001;
-}
 
 int main()
 {
